@@ -1,0 +1,186 @@
+# Flight Server - Product Requirements Document (PRD)
+
+## Overview
+
+The Flight Server is a high-performance, memory-efficient FastAPI application designed to:
+
+* Accept and process SQL queries
+* Cache large result sets in S3
+* Stream Arrow-formatted results to clients using zero-copy IPC
+* Expose schema and metadata endpoints
+* Provide Prometheus metrics for observability
+* Enforce strict memory and concurrency limits for cloud environments
+* Persist query and job metadata across server restarts
+
+---
+
+## Functional Requirements
+
+### 1. Query Submission and Execution
+
+* **POST /query/submit**
+
+  * Accepts `{ "sql": "..." }`
+  * If result is cached in S3:
+
+    * Returns `job_id` (for large results)
+    * Or returns inline JSON (if result is small)
+  * If result not cached:
+
+    * Executes SQL via DuckDB
+    * Uses `fetch_record_batch_chunks()` to stream result
+    * Saves `.arrow` (IPC) to S3 if `> 10,000 rows`
+    * Saves `.json.gz` to S3 if `<= 10,000 rows`
+    * Responds inline (small) or with `job_id` (large)
+  * Records query and result metadata into the persistent job registry
+
+### 2. Job Polling
+
+* **GET /query/status/{job\_id}**
+
+  * Returns status: `pending`, `ready`, or `error`
+  * Returns format (`arrow`, `json.gz`)
+  * Queries the persistent job registry
+
+### 3. Download Results
+
+* **GET /query/download/{job\_id}**
+
+  * Streams result in Arrow IPC format using `open_stream` and generator
+  * Uses `StreamingResponse` with generator
+  * Media type: `application/vnd.apache.arrow.stream`
+
+### 4. Schema Inspection
+
+* **POST /query/schema**
+
+  * Accepts `{ "sql": "..." }`
+  * Returns schema (column names and types)
+  * Uses cached `.arrow` if available
+  * Falls back to zero-copy batch-based execution
+
+### 5. Metadata Inspection
+
+* **POST /query/metadata**
+
+  * Accepts `{ "sql": "..." }`
+  * Returns:
+
+    ```json
+    {
+      "columns": [
+        {"name": "col1", "type": "int32"},
+        {"name": "col2", "type": "string"}
+      ],
+      "num_rows": 12345,
+      "num_columns": 2,
+      "cached": true,
+      "file_size": 123456,
+      "last_modified": "2025-05-24T14:32:10Z",
+      "key": "query-cache/ab12cdef.arrow"
+    }
+    ```
+
+### 6. Queue Monitoring
+
+* **GET /system/queue**
+
+  * Returns:
+
+    ```json
+    {
+      "executor_queue_depth": 3,
+      "active_workers": 4,
+      "max_workers": 8
+    }
+    ```
+
+---
+
+## Non-Functional Requirements
+
+### Performance
+
+* Arrow IPC must be streamed directly from DuckDB to S3 and client
+* Queries > 10,000 rows MUST use cached result
+* Memory usage MUST remain under 25GB total
+
+### Memory Efficiency
+
+* Avoid `BytesIO` buffering except when writing to S3
+* Avoid materializing `to_pylist()` unless returning JSON
+* Use `fetch_record_batch_chunks()` for all DuckDB query execution
+
+### Prometheus Metrics
+
+* **/metrics** endpoint MUST expose:
+
+  * `http_requests_total` (counter, labeled by method/path/status)
+  * `http_request_duration_seconds` (histogram)
+  * `http_request_size_bytes`, `http_response_size_bytes`
+  * `query_duration_seconds` and `query_result_size_bytes`
+  * `flight_queue_depth`, `flight_active_threads`
+  * `flight_memory_usage_bytes`
+  * `http_status_errors_total` (counter, labeled by status category: 4xx, 5xx)
+
+* Exporter SHOULD auto-start on configurable port (default: 8001)
+
+---
+
+## Internal Architecture
+
+* Uses DuckDB for SQL execution
+* Uses ThreadPoolExecutor for background execution
+* Caches results in S3 using SHA256 hash of query
+* Uses pyarrow IPC for Arrow streaming
+* Maintains a persistent query/job registry (e.g. SQLite)
+
+  * Includes: `sql`, `hash`, `job_id`, `status`, `format`, `created_at`, `completed_at`, `s3_key`, `row_count`, `file_size`
+  * Schema:
+
+    ```sql
+    CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        sql TEXT NOT NULL,
+        query_hash TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'error')),
+        format TEXT NOT NULL CHECK (format IN ('arrow', 'json.gz')),
+        created_at TEXT NOT NULL,
+        completed_at TEXT,
+        s3_key TEXT NOT NULL,
+        row_count INTEGER,
+        file_size INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_query_hash ON jobs (query_hash);
+    CREATE INDEX IF NOT EXISTS idx_status ON jobs (status);
+    ```
+  * Provides Python helper class `JobRegistry` for inserting, updating, and querying jobs
+
+---
+
+## Future Considerations
+
+* Pre-signed URLs for download
+* Web UI for query browsing and result inspection: A simple React or Vue-based frontend that lists previous queries, shows schema and metadata, allows downloading cached results, visualizes result previews (e.g. first 100 rows), and displays Prometheus-backed usage statistics.
+* Authentication and access control
+
+## Environment Configuration
+
+* All configuration values MUST be configurable via environment variables
+* Environment variables should be documented in README.md
+* Default values should be used if environment variables are not set
+* Environment variables should be used for:
+  * Database paths
+  * Registry database path
+  * S3 configuration
+  * Memory limits
+  * Worker pool size
+  * Port numbers
+  * Any other configurable parameters
+
+## Performance Optimizations
+
+* DuckDB query execution MUST use batch processing to minimize serialization overhead
+* `fetch_record_batch_chunks()` should be used instead of `fetch_arrow_table()` for all query execution
+* Batch size should be configurable via environment variable
+* Zero-copy optimizations should be maintained throughout the data pipeline

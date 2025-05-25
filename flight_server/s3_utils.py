@@ -5,8 +5,23 @@ import pyarrow.ipc as pa_ipc
 import io
 import gzip
 import json
+from .env_utils import get_env_var
 
-s3 = boto3.client("s3")
+# S3 Configuration
+S3_REGION = get_env_var("FLIGHT_S3_REGION", "us-east-1")
+S3_ENDPOINT_URL = get_env_var("FLIGHT_S3_ENDPOINT_URL", None)
+S3_ACCESS_KEY = get_env_var("FLIGHT_S3_ACCESS_KEY", None)
+S3_SECRET_KEY = get_env_var("FLIGHT_S3_SECRET_KEY", None)
+
+# Create S3 client with configuration
+s3_config = {}
+if S3_ENDPOINT_URL:
+    s3_config["endpoint_url"] = S3_ENDPOINT_URL
+if S3_ACCESS_KEY and S3_SECRET_KEY:
+    s3_config["aws_access_key_id"] = S3_ACCESS_KEY
+    s3_config["aws_secret_access_key"] = S3_SECRET_KEY
+
+s3 = boto3.client("s3", region_name=S3_REGION, **s3_config)
 
 def hash_query(query: str) -> str:
     return hashlib.sha256(query.encode()).hexdigest()

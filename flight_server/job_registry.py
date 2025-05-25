@@ -2,8 +2,11 @@ import sqlite3
 from datetime import datetime
 from typing import Optional
 
+from .env_utils import get_env_var
+
 class JobRegistry:
-    def __init__(self, db_path='job_registry.db'):
+    def __init__(self):
+        db_path = get_env_var("FLIGHT_REGISTRY_PATH", "job_registry.db")
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self._init_schema()
 
