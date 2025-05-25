@@ -1,0 +1,17 @@
+[project]
+name = "flight_server"
+version = "0.1.0"
+description = "FastAPI server for SQL query caching and download"
+authors = [{ name = "David Wilding" }]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "boto3",
+    "pyarrow",
+    "cachetools",
+    "prometheus_client",
+    "psutil"
+]
+
+[project.scripts]
+flight-server = "flight_server.main:run"
