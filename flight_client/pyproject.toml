@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flight-client"
+version = "0.1.0"
+description = "Client library for interacting with the Flight Server"
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "pyarrow>=20.0.0",
+    "pandas>=2.2.3",
+    "pydantic>=2.0.0"
+]
+
+[project.scripts]
+flight-client = "flight_client.client:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["flight_client"]

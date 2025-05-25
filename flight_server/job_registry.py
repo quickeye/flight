@@ -1,8 +1,26 @@
 import sqlite3
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
+from uuid import UUID
+from pydantic import BaseModel
 
 from .env_utils import get_env_var
+
+class JobStatus(str):
+    PENDING = "pending"
+    RUNNING = "running"
+    READY = "ready"
+    ERROR = "error"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class QueryStatusResponse(BaseModel):
+    status: str
+    format: str
+    job_id: str
+
 
 class JobRegistry:
     def __init__(self):
