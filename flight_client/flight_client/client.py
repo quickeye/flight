@@ -1,8 +1,10 @@
 import requests
+import os
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
 import pyarrow as pa
 from io import BytesIO
+from .env_utils import get_env_var
 
 class QueryStatus(BaseModel):
     status: str
@@ -10,8 +12,8 @@ class QueryStatus(BaseModel):
     job_id: str
 
 class FlightClient:
-    def __init__(self, base_url: str = "http://localhost:8000"):
-        self.base_url = base_url
+    def __init__(self, base_url: Optional[str] = None):
+        self.base_url = base_url or get_env_var("FLIGHT_CLIENT_BASE_URL", "http://localhost:8000")
         self.session = requests.Session()
 
     def submit_query(self, sql: str) -> QueryStatus:
@@ -49,7 +51,7 @@ class FlightClient:
 
     def get_query_result(self, job_id: str) -> pa.Table:
         """
-        Get the result of a completed query
+        Get the results of a completed query
         
         Args:
             job_id: The job ID returned from submit_query
@@ -63,14 +65,8 @@ class FlightClient:
         )
         response.raise_for_status()
         
-        # Read the Arrow file from the response
-        arrow_data = BytesIO()
-        for chunk in response.iter_content(chunk_size=8192):
-            arrow_data.write(chunk)
-        arrow_data.seek(0)
-        
-        # Read the Arrow table
-        reader = pa.ipc.open_file(arrow_data)
+        # Read the Arrow stream directly from the response
+        reader = pa.ipc.open_stream(response.raw)
         return reader.read_all()
 
     def wait_for_query(self, job_id: str, timeout: int = 30) -> pa.Table:

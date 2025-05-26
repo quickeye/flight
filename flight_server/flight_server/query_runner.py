@@ -3,7 +3,12 @@ import pyarrow as pa
 import os
 from typing import Generator, Optional
 from .job_registry import JobRegistry
-from .s3_utils import s3_key_for_query, save_arrow_stream_to_s3
+from .s3_utils import s3_key_for_query, save_arrow_stream_to_s3, S3_BUCKET
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def get_env_var(var_name: str, default: str) -> str:
     """Get environment variable with fallback to default value."""
@@ -16,7 +21,7 @@ def get_batch_size() -> int:
     except ValueError:
         return 1000
 
-async def run_query(
+def run_query(
     sql: str, 
     job_id: str,
     registry: JobRegistry
@@ -30,28 +35,31 @@ async def run_query(
         registry: Job registry instance
     """
     try:
+        import threading
+        logger.info(f"Starting query execution in thread {threading.get_ident()} for job {job_id}")
+        
         # Get configuration from environment variables
         db_path = get_env_var('FLIGHT_DB_PATH', ':memory:')
         registry_db = get_env_var('FLIGHT_REGISTRY_DB', '')
-        s3_bucket = get_env_var('FLIGHT_S3_BUCKET', 'flight-cache')
         
         with duckdb.connect(db_path) as conn:
-            if registry_db:
-                conn.execute(f"ATTACH DATABASE '{registry_db}' AS registry")
-            
-            # Use batch processing with configurable batch size
-            batch_size = get_batch_size()
+            # Execute query and get Arrow batches
             result = conn.execute(sql)
+            batch_size = get_batch_size()  # Re-enable batch size
             
-            # Convert DuckDB result to PyArrow table
-            arrow_table = result.fetch_arrow_table()
+            # Get a RecordBatchReader for streaming
+            reader = result.fetch_record_batch()
             
-            # Save result to S3
+            # Save result to S3 using batches
             key_arrow = s3_key_for_query(sql, "arrow")
-            save_arrow_stream_to_s3(s3_bucket, key_arrow, arrow_table)
+            
+            # Save the complete Arrow stream to S3
+            save_arrow_stream_to_s3(S3_BUCKET, key_arrow, reader)
             
             # Update job status
-            registry.update_job_status(job_id, "ready", row_count=arrow_table.num_rows, file_size=None)
+            registry.update_job_status(job_id, "ready")
+            logger.info(f"Query completed successfully in thread {threading.get_ident()} for job {job_id}")
     except Exception as e:
+        logger.error(f"Query execution failed in thread {threading.get_ident()} for job {job_id}: {str(e)}")
         registry.update_job_status(job_id, "error")
         raise e

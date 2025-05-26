@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flight-server"
+version = "0.1.0"
+description = "Flight Server for executing SQL queries"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "prometheus-client>=0.19.0",
+    "duckdb>=0.11.0",
+    "boto3>=1.34.0",
+    "pyarrow>=20.0.0",
+    "pydantic>=2.0.0",
+    "psutil>=5.9.0"
+]
+
+[project.scripts]
+flight-server = "flight_server.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["flight_server"]
+
+[tool.hatch.envs.default]
+deps = []
+scripts.test = "python -m pytest"
+scripts.lint = "ruff check ."
+scripts.format = "ruff format ."
+
+[tool.hatch.envs.test]
+deps = ["pytest"]
+scripts.test = "python -m pytest"
+
+[tool.hatch.envs.lint]
+deps = ["ruff"]
+scripts.lint = "ruff check ."
+
+[tool.hatch.envs.format]
+deps = ["ruff"]
+scripts.format = "ruff format ."

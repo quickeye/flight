@@ -23,18 +23,38 @@ s3_config = {
 
 s3 = boto3.client("s3", **s3_config)
 
+# Create the bucket if it doesn't exist
+S3_BUCKET = get_env_var("FLIGHT_S3_BUCKET", "flight-cache")
+try:
+    s3.create_bucket(Bucket=S3_BUCKET)
+except s3.exceptions.BucketAlreadyExists:
+    pass
+except s3.exceptions.BucketAlreadyOwnedByYou:
+    pass
+
 def hash_query(query: str) -> str:
     return hashlib.sha256(query.encode()).hexdigest()
 
 def s3_key_for_query(query: str, ext: str) -> str:
-    return f"query-cache/{hash_query(query)}.{ext}"
+    return f"{S3_BUCKET}/{hash_query(query)}.{ext}"
 
-def save_arrow_stream_to_s3(bucket: str, key: str, table: pa.Table):
-    buf = io.BytesIO()
-    with pa.ipc.new_file(buf, table.schema) as writer:
-        writer.write(table)
-    buf.seek(0)
-    s3.upload_fileobj(buf, bucket, key)
+def save_arrow_stream_to_s3(bucket: str, key: str, reader: pa.RecordBatchReader):
+    # Create a streaming writer
+    with pa.BufferOutputStream() as stream:
+        with pa.ipc.new_stream(stream, reader.schema) as writer:
+            # Write batches from the reader
+            while True:
+                try:
+                    batch = reader.read_next_batch()
+                    writer.write_batch(batch)
+                except StopIteration:
+                    break
+        
+        # Get the complete stream
+        buffer = stream.getvalue()
+        
+        # Upload to S3
+        s3.upload_fileobj(io.BytesIO(buffer.to_pybytes()), bucket, key)
 
 def stream_arrow_from_s3(bucket: str, key: str) -> pa.Table:
     s3_obj = s3.get_object(Bucket=bucket, Key=key)

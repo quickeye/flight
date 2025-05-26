@@ -42,6 +42,10 @@ ACTIVE_THREADS = Gauge(
     "flight_active_threads", "Active executor threads"
 )
 
+def init_prometheus():
+    """Initialize Prometheus metrics"""
+    pass  # Metrics are initialized via middleware
+
 class PrometheusMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()

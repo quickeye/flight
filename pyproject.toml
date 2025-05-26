@@ -1,25 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "flight_server"
+name = "flight"
 version = "0.1.0"
-description = "FastAPI server for SQL query caching and download"
-authors = [{ name = "David Wilding" }]
-dependencies = [
-    "fastapi==0.104.1",
-    "uvicorn==0.24.0",
-    "pydantic==2.11.5",
-    "duckdb==1.3.0",
-    "pyarrow==20.0.0",
-    "boto3==1.29.1",
-    "prometheus-client==0.19.0",
-    "psutil==5.9.6"
-]
+description = "Flight Server and Client for SQL query execution"
 
 [project.scripts]
 flight-server = "flight_server.main:app"
+flight-client = "flight_client.client:main"
 
 [tool.uv]
 required-version = "0.7.8"
-
-[build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
-build-backend = "setuptools.build_meta"
