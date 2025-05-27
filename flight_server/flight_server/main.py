@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from .env_utils import get_env_var
 from .middleware import PrometheusMiddleware
 from .job_registry import JobRegistry
+from .file_discovery import get_file_discovery_service
 
 # Configure logging
 log_level = get_env_var("FLIGHT_LOG_LEVEL", "info").upper()
@@ -101,7 +102,12 @@ async def lifespan(app: FastAPI):
         
         # Initialize registry
         app.state.registry = JobRegistry()
-        
+
+        # Start file discovery service
+        file_service = get_file_discovery_service()
+        file_service.start()
+        app.state.file_discovery_service = file_service
+
         yield
     finally:
         # Cleanup ThreadPoolExecutor
@@ -111,6 +117,10 @@ async def lifespan(app: FastAPI):
         # Cleanup registry
         if hasattr(app.state, 'registry'):
             app.state.registry.close()
+
+        # Stop file discovery service
+        if hasattr(app.state, 'file_discovery_service'):
+            app.state.file_discovery_service.stop()
 
 app = FastAPI(
     title="Flight Server API",
@@ -148,10 +158,11 @@ async def log_requests(request: Request, call_next):
     return response
 
 # Register routers
-from flight_server.routes import health_router, query_router, metrics_router
+from flight_server.routes import health_router, query_router, metrics_router, files_router
 app.include_router(query_router, tags=["query"])
 app.include_router(metrics_router, tags=["metrics"])
 app.include_router(health_router, tags=["health"])
+app.include_router(files_router, tags=["files"])
 
 # Main entry point
 def main():
